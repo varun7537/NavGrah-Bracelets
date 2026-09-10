@@ -1,1 +1,1 @@
-# NavGrah-Bracelets
+primary color: #f2e6d8
