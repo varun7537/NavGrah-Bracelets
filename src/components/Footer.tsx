@@ -55,10 +55,6 @@ const DEFAULT_EXPLORE_LINKS: FooterNavLink[] = [
     href: "/customized",
   },
   {
-    label: "About Navgrah",
-    href: "/about-navgrah",
-  },
-  {
     label: "Contact Us",
     href: "/contact",
   },
