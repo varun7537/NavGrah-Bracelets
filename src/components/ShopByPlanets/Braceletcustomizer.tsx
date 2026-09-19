@@ -341,10 +341,10 @@ function StepDetailContent({
           </button>
           <div className={`cbj-report-panel ${reportOpen ? "cbj-open" : ""}`}>
             <div className="cbj-report-inner">
-              <ul className="ng-ui mt-2.5 grid grid-cols-1 gap-1 text-[11px] text-[#1C1024]/60 sm:grid-cols-2">
+              <ul className="ng-ui mt-2.5 grid grid-cols-1 gap-1 text-[11px] text-[#FFFFFF]/60 sm:grid-cols-2">
                 {REPORT_CONTENTS.map((item) => (
                   <li key={item} className="flex items-center gap-1.5">
-                    <span className="h-1 w-1 shrink-0 rounded-full bg-[#6E4C86]" />
+                    <span className="h-1 w-1 shrink-0 rounded-full bg-[#FFFFFF]" />
                     {item}
                   </li>
                 ))}
