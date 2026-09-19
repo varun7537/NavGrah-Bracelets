@@ -103,8 +103,8 @@ function useInView<T extends HTMLElement>(threshold = 0.12) {
 
 export default function RashiBraceletsSection({
   products = RASHI_BRACELETS,
-  productBasePath = "/products/",
-  viewAllHref = "/collections/rashi-bracelets",
+  productBasePath = "/products/slug/",
+  viewAllHref = "/collections",
   limit,
   onAddToBag,
   linkComponent,
