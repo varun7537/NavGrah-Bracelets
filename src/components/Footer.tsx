@@ -54,10 +54,10 @@ const DEFAULT_EXPLORE_LINKS: FooterNavLink[] = [
     label: "Customized Bracelets",
     href: "/customized",
   },
-  {
-    label: "About Navgrah",
-    href: "/about-navgrah",
-  },
+  // {
+  //   label: "About Navgrah",
+  //   href: "/about-navgrah",
+  // },
   {
     label: "Contact Us",
     href: "/contact",
