@@ -55,7 +55,7 @@ export default function RashiShowcase({ className = "" }: { className?: string }
           <div className="inline-flex flex-wrap items-center justify-center gap-1 rounded-full border border-ink/10 bg-white p-1 shadow-sm">
             {FILTERS.map((option) => {
               const active = filter === option;
-              const activeColor = option === "All" ? "#9D4EDD" : ELEMENT_COLORS[option];
+              const activeColor = option === "All" ? "#C77DFF" : ELEMENT_COLORS[option];
               return (
                 <button
                   key={option}
