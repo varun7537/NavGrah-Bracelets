@@ -2,49 +2,27 @@
 "use client";
 
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import styles from "../../styles/Custombraceletjourney.module.css";
-import { formatINR } from "../../lib/Currency";
 import { usePrefersReducedMotion } from "../../lib/Useprefersreducedmotion";
-import PaymentButton from "./PaymentButton";
 import {
   ACCEPTED_KUNDLI_TYPES,
-  AstrologerRecommendation,
   AstrologyDetails,
   CustomBraceletProduct,
   EMPTY_ASTROLOGY_DETAILS,
-  FinalPaymentResult,
   Gender,
   MAX_KUNDLI_FILE_MB,
-  StoneOption,
 } from "../../data/Custombracelet";
 
 export interface CustomBraceletJourneyProps {
   product: CustomBraceletProduct;
-  /** Only used to show stone names on the recommendation, if you still use that step. */
-  stoneOptions?: StoneOption[];
-  /** Optional. If provided, the old flow (astrologer review -> pay) continues
-   * after WhatsApp opens. If omitted, the journey ends on the WhatsApp step. */
-  onSubmitAstrologyDetails?: (
-    details: AstrologyDetails,
-    kundliFile: File | null
-  ) => Promise<AstrologerRecommendation>;
-  /** Optional. Places the order once the payment has gone through. */
-  onOrderConfirm?: (payload: {
-    paymentId: string;
-    recommendation: AstrologerRecommendation;
-    details: AstrologyDetails;
-  }) => Promise<FinalPaymentResult>;
   className?: string;
 }
 
-type StepKey = "details" | "consultation" | "whatsapp" | "recommendation" | "confirmed";
-type MainStep = "details" | "consultation" | "recommendation";
+type StepKey = "details" | "success";
 
-const STEP_ORDER: MainStep[] = ["details", "consultation", "recommendation"];
-const STEP_LABELS: Record<MainStep, string> = {
+const STEP_ORDER: StepKey[] = ["details", "success"];
+const STEP_LABELS: Record<StepKey, string> = {
   details: "Your details",
-  consultation: "Astrologer review",
-  recommendation: "Review & pay",
+  success: "Sent to astrologer",
 };
 
 const WHATSAPP_NUMBER = "918595873812"; // +91 85958 73812
@@ -233,17 +211,19 @@ function WhatsAppIcon(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
+function CheckCircleIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+    </svg>
+  );
+}
+
 /* ------------------------------------------------------------------ *
  * Main component
  * ------------------------------------------------------------------ */
 
-export default function CustomBraceletJourney({
-  product,
-  stoneOptions = [],
-  onSubmitAstrologyDetails,
-  onOrderConfirm,
-  className = "",
-}: CustomBraceletJourneyProps) {
+export default function CustomBraceletJourney({ product, className = "" }: CustomBraceletJourneyProps) {
   const reducedMotion = usePrefersReducedMotion();
   const headingId = useId();
   const uid = useId();
@@ -257,17 +237,15 @@ export default function CustomBraceletJourney({
   const [isDragging, setIsDragging] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
   const [whatsappUrl, setWhatsappUrl] = useState<string | null>(null);
-
-  const [isWaitingForAstrologer, setIsWaitingForAstrologer] = useState(false);
-  const [consultationError, setConsultationError] = useState<string | null>(null);
-  const [recommendation, setRecommendation] = useState<AstrologerRecommendation | null>(null);
-
-  const [finalError, setFinalError] = useState<string | null>(null);
-  const [isFinalizingOrder, setIsFinalizingOrder] = useState(false);
-  const [orderId, setOrderId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessBanner, setShowSuccessBanner] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const errorSummaryRef = useRef<HTMLDivElement>(null);
+
+  // Guards against a double click / accidental re-submit opening WhatsApp
+  // (and thus prefilling a new message) more than once per form fill.
+  const hasSentRef = useRef(false);
 
   const isFirstRender = useRef(true);
   const [autoFocusStep, setAutoFocusStep] = useState(false);
@@ -311,17 +289,23 @@ export default function CustomBraceletJourney({
     };
   }, [kundliPreviewUrl]);
 
-  // The WhatsApp step lives inside the "Astrologer review" card.
-  const activeKey: MainStep | "confirmed" = step === "whatsapp" ? "consultation" : step;
-  const currentStepIndex = activeKey === "confirmed" ? STEP_ORDER.length : STEP_ORDER.indexOf(activeKey);
+  // Auto-dismiss the success banner after a few seconds; the permanent
+  // "what happens next" message underneath stays visible.
+  useEffect(() => {
+    if (!showSuccessBanner) return;
+    const id = window.setTimeout(() => setShowSuccessBanner(false), 6000);
+    return () => window.clearTimeout(id);
+  }, [showSuccessBanner]);
+
+  const currentStepIndex = STEP_ORDER.indexOf(step);
 
   const statusFor = useCallback(
-    (key: MainStep): StepStatus => {
+    (key: StepKey): StepStatus => {
       const index = STEP_ORDER.indexOf(key);
-      if (activeKey === key) return "current";
+      if (step === key) return "current";
       return currentStepIndex > index ? "done" : "upcoming";
     },
-    [activeKey, currentStepIndex]
+    [step, currentStepIndex]
   );
 
   const errorList = useMemo(
@@ -377,30 +361,13 @@ export default function CustomBraceletJourney({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [kundliPreviewUrl, updateDetail]);
 
-  const runConsultation = useCallback(
-    async (submitted: AstrologyDetails, file: File | null) => {
-      if (!onSubmitAstrologyDetails) return;
-      setStep("consultation");
-      setIsWaitingForAstrologer(true);
-      setConsultationError(null);
-      try {
-        const result = await onSubmitAstrologyDetails(submitted, file);
-        setRecommendation(result);
-        setStep("recommendation");
-      } catch (err) {
-        setConsultationError(
-          err instanceof Error ? err.message : "The astrologer couldn’t be reached. Try again in a moment."
-        );
-      } finally {
-        setIsWaitingForAstrologer(false);
-      }
-    },
-    [onSubmitAstrologyDetails]
-  );
-
   const handleDetailsSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+
+      // Prevent a double-click / rapid re-submit from opening WhatsApp twice.
+      if (isSubmitting || hasSentRef.current) return;
+
       const errors = validateDetails(details, kundliFile);
       setFormErrors(errors);
 
@@ -418,6 +385,9 @@ export default function CustomBraceletJourney({
         return;
       }
 
+      setIsSubmitting(true);
+      hasSentRef.current = true;
+
       // Open WhatsApp first, synchronously, so mobile browsers treat it as a
       // direct result of the tap and don't block it.
       const url = buildWhatsAppUrl(buildWhatsAppMessage(details, kundliFile, product.name));
@@ -430,43 +400,18 @@ export default function CustomBraceletJourney({
         /* ignore */
       }
 
-      if (onSubmitAstrologyDetails) {
-        void runConsultation(details, kundliFile);
-      } else {
-        setStep("whatsapp");
-      }
+      setStep("success");
+      setShowSuccessBanner(true);
+      setIsSubmitting(false);
     },
-    [details, kundliFile, reducedMotion, runConsultation, onSubmitAstrologyDetails, product.name]
+    [details, kundliFile, reducedMotion, isSubmitting, product.name]
   );
 
-  const handlePaymentSuccess = useCallback(
-    async (paymentId: string) => {
-      if (!recommendation || !onOrderConfirm) return;
-      setIsFinalizingOrder(true);
-      setFinalError(null);
-      try {
-        const result = await onOrderConfirm({ paymentId, recommendation, details });
-        if (result.success) {
-          setOrderId(result.orderId ?? null);
-          setStep("confirmed");
-        } else {
-          setFinalError(
-            result.errorMessage ??
-              "The order couldn’t be placed. Your payment is safe — contact us with your payment id."
-          );
-        }
-      } catch (err) {
-        setFinalError(
-          err instanceof Error
-            ? err.message
-            : "The order couldn’t be placed. Your payment is safe — contact us with your payment id."
-        );
-      } finally {
-        setIsFinalizingOrder(false);
-      }
-    },
-    [recommendation, details, onOrderConfirm]
-  );
+  const handleEditDetails = useCallback(() => {
+    hasSentRef.current = false;
+    setShowSuccessBanner(false);
+    setStep("details");
+  }, []);
 
   const maxDob = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -479,9 +424,9 @@ export default function CustomBraceletJourney({
       <StepRail current={currentStepIndex} />
 
       <p aria-live="polite" className="sr-only">
-        {activeKey === "confirmed"
-          ? "Order confirmed"
-          : `Step ${currentStepIndex + 1} of 3: ${STEP_LABELS[activeKey]}`}
+        {step === "success"
+          ? "Details sent successfully"
+          : `Step ${currentStepIndex + 1} of 2: ${STEP_LABELS[step]}`}
       </p>
 
       <div className="mt-6 space-y-4">
@@ -491,8 +436,8 @@ export default function CustomBraceletJourney({
           title="Share your birth details and your problem"
           description="Type in your details, or upload a kundli you already have. This takes about two minutes."
           status={statusFor("details")}
-          summary={currentStepIndex > 0 ? `Sent for ${details.fullName || "you"}` : undefined}
-          onEdit={currentStepIndex > 0 && activeKey !== "confirmed" ? () => setStep("details") : undefined}
+          summary={step === "success" ? `Sent for ${details.fullName || "you"}` : undefined}
+          onEdit={step === "success" ? handleEditDetails : undefined}
           autoFocusOnActivate={autoFocusStep}
           reducedMotion={reducedMotion}
         >
@@ -859,10 +804,11 @@ export default function CustomBraceletJourney({
               <div className="sticky bottom-0 -mx-6 mt-5 border-t border-[#efe7dc] bg-white/95 px-6 py-4 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-none">
                 <button
                   type="submit"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-[#1fb857] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2 sm:w-auto sm:px-8"
+                  disabled={isSubmitting}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-[#1fb857] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:px-8"
                 >
                   <WhatsAppIcon className="h-5 w-5" />
-                  Send On WhatsApp
+                  {isSubmitting ? "Sending…" : "Send On WhatsApp"}
                 </button>
                 <p className="mt-2 text-xs text-[#6d6259]">
                   This opens WhatsApp with your details filled in. Just press send.
@@ -872,213 +818,66 @@ export default function CustomBraceletJourney({
           </form>
         </StepCard>
 
-        {/* Step 2 — Astrologer review */}
+        {/* Step 2 — Success */}
         <StepCard
           number={2}
-          title="Astrologer review"
-          description="They read your chart and put together a bracelet recommendation."
-          status={statusFor("consultation")}
-          summary={currentStepIndex > 1 ? "Recommendation ready" : undefined}
+          title="Sent to our astrologer"
+          description="Once you send the WhatsApp message, your details reach our astrologer."
+          status={statusFor("success")}
           autoFocusOnActivate={autoFocusStep}
           reducedMotion={reducedMotion}
         >
           <div className="text-center">
-            {step === "whatsapp" && (
-              <div>
-                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366]/15 text-[#1fb857]">
-                  <WhatsAppIcon className="h-6 w-6" />
-                </span>
-                <p className="mt-3 text-base font-semibold text-[#241c16]">WhatsApp is ready</p>
-                <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-[#6d6259]">
-                  Your details are filled in on WhatsApp. Press send there and our astrologer will reply
-                  on the same chat. If it didn’t open, use the button below.
+            {/* Success popup / banner */}
+            {showSuccessBanner && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mx-auto mb-5 flex max-w-md items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-left"
+              >
+                <CheckCircleIcon className="h-6 w-6 shrink-0 text-emerald-600" />
+                <p className="text-sm font-medium text-emerald-800">
+                  WhatsApp par aapki details successfully bhej di gayi hain.
                 </p>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-center">
-                  {whatsappUrl && (
-                    <a
-                      href={whatsappUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#1fb857]"
-                    >
-                      <WhatsAppIcon className="h-5 w-5" />
-                      Open WhatsApp again
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setStep("details")}
-                    className="rounded-full border border-[#e7dfd5] px-6 py-3 text-sm font-semibold text-[#241c16]"
-                  >
-                    Edit my details
-                  </button>
-                </div>
               </div>
             )}
 
-            {isWaitingForAstrologer && !consultationError && (
-              <>
-                <div
-                  className={`${styles.spinner} ${reducedMotion ? styles.noMotion : ""}`}
-                  role="status"
-                  aria-live="polite"
-                >
-                  <span className="sr-only">Waiting for the astrologer’s recommendation</span>
-                </div>
-                <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-[#6d6259]">
-                  Your chart is with the astrologer. This usually takes a few minutes and appears right
-                  here — you can keep this page open.
-                </p>
-                <div className={`${styles.progressTrack} ${reducedMotion ? styles.noMotion : ""} mx-auto mt-5 max-w-xs`} />
-              </>
-            )}
-
-            {consultationError && (
-              <div>
-                <p role="alert" className="text-sm text-red-700">
-                  {consultationError}
-                </p>
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-center">
-                  <button
-                    type="button"
-                    onClick={() => void runConsultation(details, kundliFile)}
-                    className="rounded-full bg-[#211b17] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#332822]"
-                  >
-                    Send again
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStep("details")}
-                    className="rounded-full border border-[#e7dfd5] px-6 py-3 text-sm font-semibold text-[#241c16]"
-                  >
-                    Edit my details
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </StepCard>
-
-        {/* Step 3 — Recommendation + payment */}
-        <StepCard
-          number={3}
-          title="Your recommendation and payment"
-          description="Read what the astrologer suggests, then pay to confirm your bracelet."
-          status={statusFor("recommendation")}
-          summary={step === "confirmed" ? "Paid and confirmed" : undefined}
-          autoFocusOnActivate={autoFocusStep}
-          reducedMotion={reducedMotion}
-        >
-          {recommendation ? (
-            <div>
-              {recommendation.astrologerName && (
-                <p className="text-xs text-[#6d6259]">Read by {recommendation.astrologerName}</p>
-              )}
-              <p className="mt-1 text-sm leading-6 text-[#241c16]">{recommendation.summary}</p>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                {recommendation.recommendedStones.map((stoneId) => {
-                  const stone = stoneOptions.find((s) => s.id === stoneId);
-                  return (
-                    <span
-                      key={stoneId}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[#e7dfd5] bg-[#faf8f4] px-3 py-1 text-xs text-[#241c16]"
-                    >
-                      {stone && (
-                        <span
-                          aria-hidden="true"
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: stone.swatch }}
-                        />
-                      )}
-                      {stone?.label ?? stoneId}
-                    </span>
-                  );
-                })}
-                {recommendation.recommendedMetal && (
-                  <span className="inline-flex items-center rounded-full border border-[#e7dfd5] bg-[#faf8f4] px-3 py-1 text-xs text-[#241c16]">
-                    {recommendation.recommendedMetal}
-                  </span>
-                )}
-                {recommendation.beadCount ? (
-                  <span className="inline-flex items-center rounded-full border border-[#e7dfd5] bg-[#faf8f4] px-3 py-1 text-xs text-[#241c16]">
-                    {recommendation.beadCount} beads
-                  </span>
-                ) : null}
-              </div>
-
-              {recommendation.wearInstructions && (
-                <p className="mt-4 rounded-xl bg-[#faf8f4] px-4 py-3 text-sm leading-6 text-[#6d6259]">
-                  {recommendation.wearInstructions}
-                </p>
-              )}
-
-              <dl className="mt-6 space-y-2 border-t border-[#e7dfd5] pt-5">
-                <div className="flex items-center justify-between text-sm text-[#6d6259]">
-                  <dt>Astrologer consultation</dt>
-                  <dd>Free</dd>
-                </div>
-                <div className="flex items-center justify-between border-t border-[#e7dfd5] pt-2 text-base font-semibold text-[#241c16]">
-                  <dt>{product.name}</dt>
-                  <dd className="tabular-nums">{formatINR(recommendation.finalAmount)}</dd>
-                </div>
-                {recommendation.deliveryEstimate && (
-                  <div className="flex items-center justify-between pt-1 text-xs text-[#6d6259]">
-                    <dt>Delivery</dt>
-                    <dd>{recommendation.deliveryEstimate}</dd>
-                  </div>
-                )}
-              </dl>
-
-              {finalError && (
-                <p role="alert" className="mt-3 text-sm text-red-700">
-                  {finalError}
-                </p>
-              )}
-
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <PaymentButton
-                  amount={recommendation.finalAmount}
-                  handle={product.id}
-                  purpose="final"
-                  variant="light"
-                  disabled={isFinalizingOrder}
-                  label={`Pay ${formatINR(recommendation.finalAmount)} and confirm`}
-                  customer={{ name: details.fullName, email: details.email, phone: details.phone }}
-                  onSuccess={(paymentId) => void handlePaymentSuccess(paymentId)}
-                  onFailure={(message) => setFinalError(message)}
-                />
-                <button
-                  type="button"
-                  disabled={isFinalizingOrder}
-                  onClick={() => setStep("details")}
-                  className="rounded-full border border-[#e7dfd5] px-6 py-3.5 text-sm font-semibold text-[#241c16] transition hover:bg-[#faf8f4] disabled:opacity-50"
-                >
-                  Ask for changes
-                </button>
-              </div>
-
-              {isFinalizingOrder && (
-                <p aria-live="polite" className="mt-3 text-xs text-[#6d6259]">
-                  Placing your order — don’t close this page.
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-[#6d6259]">Your recommendation will appear here once it’s ready.</p>
-          )}
-        </StepCard>
-
-        {step === "confirmed" && (
-          <div className="rounded-2xl border border-[#e7dfd5] bg-white p-8 text-center shadow-sm">
-            <h3 className="text-xl font-semibold text-[#241c16]">Your bracelet is being made</h3>
-            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#6d6259]">
-              {orderId ? `Order ${orderId} is confirmed.` : "Your order is confirmed."} We’ll send the
-              full reading and shipping updates to{" "}
-              {details.email ? details.email : `+91 ${details.phone}`}.
+            <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#25D366]/15 text-[#1fb857]">
+              <WhatsAppIcon className="h-6 w-6" />
+            </span>
+            <p className="mt-3 text-base font-semibold text-[#241c16]">WhatsApp is ready</p>
+            <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-[#6d6259]">
+              Your details are filled in on WhatsApp. Press send there so our astrologer receives your
+              chart. If it didn’t open, use the button below.
             </p>
+
+            <div className="mx-auto mt-5 max-w-md rounded-xl bg-[#faf8f4] px-4 py-4 text-sm leading-6 text-[#241c16]">
+              Aapki details successfully receive ho gayi hain. Ab hamare astrologer aapki details review
+              karenge aur review complete hone ke baad aapse directly connect karenge.
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              {whatsappUrl && (
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-[#25D366] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#1fb857]"
+                >
+                  <WhatsAppIcon className="h-5 w-5" />
+                  Open WhatsApp again
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={handleEditDetails}
+                className="rounded-full border border-[#e7dfd5] px-6 py-3 text-sm font-semibold text-[#241c16]"
+              >
+                Edit my details
+              </button>
+            </div>
           </div>
-        )}
+        </StepCard>
       </div>
     </div>
   );
