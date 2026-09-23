@@ -3,18 +3,12 @@
 import React from "react";
 import type { Metadata } from "next";
 import CustomBraceletJourney from "../../components/Customized/Custombraceletjourney";
-import {
-  AstrologerRecommendation,
-  AstrologyDetails,
-  CustomBraceletProduct,
-  FinalPaymentResult,
-  STONE_OPTIONS,
-} from "../../data/Custombracelet";
+import { CustomBraceletProduct } from "../../data/Custombracelet";
 
 export const metadata: Metadata = {
   title: "Customized NavGrah bracelet",
   description:
-    "A bracelet made around your kundli. Share your birth details, get a free astrologer recommendation, and pay only when you’re happy with it.",
+    "A bracelet made around your kundli. Share your birth details and get astrologer recommendation on WhatsApp.",
 };
 
 async function getCustomBraceletProduct(): Promise<CustomBraceletProduct> {
@@ -26,64 +20,6 @@ async function getCustomBraceletProduct(): Promise<CustomBraceletProduct> {
     imageUrl: "/images/customized-bracelet.jpg",
     imageAlt: "Customized NavGrah bracelet",
   };
-}
-
-async function submitAstrologyDetails(
-  details: AstrologyDetails,
-  kundliFile: File | null
-): Promise<AstrologerRecommendation> {
-  "use server";
-
-  // TODO: replace with the real call to your astrologer service. If a file was
-  // uploaded, forward it as FormData rather than JSON:
-  //
-  //   const form = new FormData();
-  //   form.append("details", JSON.stringify(details));
-  //   if (kundliFile) form.append("kundliFile", kundliFile);
-  //   const res = await fetch(`${process.env.API_BASE_URL}/astrology/consult`, {
-  //     method: "POST",
-  //     body: form,
-  //   });
-  //   if (!res.ok) throw new Error("The astrologer couldn’t be reached. Try again in a moment.");
-  //   return res.json();
-
-  await new Promise((resolve) => setTimeout(resolve, 1400));
-
-  const fallback = [STONE_OPTIONS[0].id, STONE_OPTIONS[3].id];
-
-  return {
-    astrologerName: "Pandit R. Sharma",
-    summary:
-      `Based on ${kundliFile ? "the kundli you uploaded" : "your birth chart"}, a bracelet combining ` +
-      `${details.noStonePreference ? "stones chosen for your ascendant" : "the stones you picked"} with silver ` +
-      "supports your current planetary period.",
-    recommendedStones:
-      details.noStonePreference || details.stonePreferences.length === 0
-        ? fallback
-        : details.stonePreferences,
-    recommendedMetal: "Sterling silver",
-    beadCount: 9,
-    wearInstructions: "Wear it on the right wrist on a Monday morning, after a wash in clean water.",
-    deliveryEstimate: "5 to 7 working days",
-    finalAmount: 2149,
-  };
-}
-
-async function confirmOrder(payload: {
-  paymentId: string;
-  recommendation: AstrologerRecommendation;
-  details: AstrologyDetails;
-}): Promise<FinalPaymentResult> {
-  "use server";
-
-  // TODO: record the order in your system, e.g.
-  // await fetch(`${process.env.API_BASE_URL}/orders`, {
-  //   method: "POST",
-  //   headers: { "Content-Type": "application/json" },
-  //   body: JSON.stringify(payload),
-  // });
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  return { success: true, orderId: `ORD-${Date.now()}` };
 }
 
 export default async function CustomizedPage() {
@@ -103,8 +39,8 @@ export default async function CustomizedPage() {
             </p>
 
             <div className="mt-8 inline-flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-full bg-[#f5eee5] px-5 py-3 text-sm">
-              <span className="text-[#6d6259]">The astrologer reading is free.</span>
-              <span className="font-semibold text-[#8c6327]">You pay once you approve it.</span>
+              <span className="font-semibold text-[#8c6327]">The astrologer review your kundli</span>
+              <span className="text-[#6d6259]">Share your details and we’ll reach out on WhatsApp.</span>
             </div>
 
             <div className="mt-6">
@@ -124,16 +60,12 @@ export default async function CustomizedPage() {
         <div className="mb-8 max-w-2xl sm:mb-10">
           <h2 className="text-2xl font-semibold sm:text-3xl">Your personalized bracelet</h2>
           <p className="mt-3 text-[#6d6259]">
-            Three steps, all on this page: your details, the astrologer’s reading, then payment.
+            Share your details here, then send them to our astrologer on WhatsApp. They’ll review your
+            chart and connect with you directly.
           </p>
         </div>
 
-        <CustomBraceletJourney
-          product={product}
-          stoneOptions={STONE_OPTIONS}
-          onSubmitAstrologyDetails={submitAstrologyDetails}
-          onOrderConfirm={confirmOrder}
-        />
+        <CustomBraceletJourney product={product} />
       </section>
 
       {/* Information */}
@@ -145,8 +77,8 @@ export default async function CustomizedPage() {
             {[
               "Keep your birth date, time and city handy — or a kundli file you already have.",
               "Birth time matters. If you don’t know it exactly, say so and the astrologer will work around it.",
-              "The recommendation comes from the astrologer’s reading of what you share.",
-              "Nothing is charged until you’ve seen the recommendation and chosen to go ahead.",
+              "After you submit, your details are sent to our astrologer on WhatsApp.",
+              "Our astrologer will review your details and connect with you directly once it’s ready.",
             ].map((line) => (
               <li key={line} className="flex gap-3">
                 <span aria-hidden="true" className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#a47735]" />
